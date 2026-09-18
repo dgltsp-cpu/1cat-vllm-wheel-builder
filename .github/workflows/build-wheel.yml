@@ -1,0 +1,95 @@
+name: Build 1Cat-vLLM SM70 wheel
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "1Cat-vLLM ref to build (tag, branch or commit)"
+        type: string
+        required: true
+        default: "v1.5.0"
+      version:
+        description: "Force the wheel version (empty = derive from git via setuptools-scm)"
+        type: string
+        required: false
+        default: ""
+      max_jobs:
+        description: "Parallel compile jobs"
+        type: string
+        required: true
+        default: "4"
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 355
+
+    steps:
+      - name: Free disk space
+        uses: jlumbroso/free-disk-space@main
+        with:
+          tool-cache: true
+          android: true
+          dotnet: true
+          haskell: true
+          large-packages: true
+          docker-images: true
+          swap-storage: false
+
+      - name: Disk before build
+        run: df -h /
+
+      - name: Checkout builder repository
+        uses: actions/checkout@v4
+        with:
+          path: builder
+
+      - name: Checkout 1Cat-vLLM
+        uses: actions/checkout@v4
+        with:
+          repository: 1CatAI/1Cat-vLLM
+          ref: ${{ inputs.ref }}
+          fetch-depth: 0
+          path: src
+
+      - name: Resolved source revision
+        working-directory: src
+        run: |
+          git log -1 --format='commit %H%ndate   %cI%nsubject %s'
+          git describe --tags --always || true
+
+      - name: Pull CUDA 12.8 devel image
+        run: docker pull nvidia/cuda:12.8.1-devel-ubuntu24.04
+
+      - name: Build wheel
+        env:
+          BUILD_REF: ${{ inputs.ref }}
+          MAX_JOBS: ${{ inputs.max_jobs }}
+          VERSION_OVERRIDE: ${{ inputs.version }}
+        run: |
+          mkdir -p out
+          chmod +x builder/ci/*.sh
+          docker run --rm \
+            -v "$PWD/src:/work/src" \
+            -v "$PWD/builder:/work/builder" \
+            -v "$PWD/out:/work/out" \
+            -e BUILD_REF -e MAX_JOBS -e VERSION_OVERRIDE \
+            nvidia/cuda:12.8.1-devel-ubuntu24.04 \
+            bash /work/builder/ci/build-in-container.sh
+
+      - name: Verify wheel
+        run: bash builder/ci/verify-wheel.sh out
+
+      - name: Upload wheel
+        uses: actions/upload-artifact@v4
+        with:
+          name: 1cat-vllm-wheel
+          path: |
+            out/*.whl
+            out/*.sha256
+          if-no-files-found: error
+          retention-days: 30
+          compression-level: 0
