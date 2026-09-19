@@ -26,6 +26,7 @@ apt-get install -y --no-install-recommends \
   build-essential git curl ca-certificates pkg-config \
   python3.12 python3.12-dev python3.12-venv \
   cmake ninja-build patchelf libssl-dev zlib1g-dev binutils perl
+apt-get install -y --no-install-recommends unzip
 
 echo "=== nvcc ==="
 nvcc --version
@@ -69,6 +70,20 @@ print("Torch:", torch.__version__)
 print("Torch CUDA:", torch.version.cuda)
 print("nvcc:", shutil.which("nvcc"))
 PY
+
+# The Rust frontend (vllm-rs) needs protoc. Distro protobuf-compiler is often
+# too old for build.rs's --experimental_allow_proto3_optional, and WITHOUT
+# protoc setup.py only *warns* ("optional Rust extension vllm.vllm-rs failed")
+# and silently ships a wheel with no Rust frontend. Use the repository's own
+# pinned installer.
+if [ -x "$SRC/tools/install_protoc.sh" ]; then
+  PROTOC_VERSION="${PROTOC_VERSION:-34.2}" bash "$SRC/tools/install_protoc.sh"
+else
+  echo "=== repository has no tools/install_protoc.sh, falling back to apt ==="
+  apt-get install -y --no-install-recommends protobuf-compiler
+fi
+protoc --version
+export PROTOC="$(command -v protoc)"
 
 if [ -n "${VERSION_OVERRIDE:-}" ]; then
   echo "=== forcing version: $VERSION_OVERRIDE ==="

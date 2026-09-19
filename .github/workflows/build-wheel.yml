@@ -85,6 +85,7 @@ jobs:
 
       - name: Upload wheel
         uses: actions/upload-artifact@v4
+        if: always()
         with:
           name: 1cat-vllm-wheel
           path: |
