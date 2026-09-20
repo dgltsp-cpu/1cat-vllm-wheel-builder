@@ -20,7 +20,7 @@ on:
         default: "4"
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   build:
@@ -94,3 +94,37 @@ jobs:
           if-no-files-found: error
           retention-days: 30
           compression-level: 0
+
+      - name: Publish release
+        if: success()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          WHEEL="$(ls out/*.whl | head -n1)"
+          SHAFILE="$(ls out/*.sha256 | head -n1)"
+          NAME="$(basename "$WHEEL")"
+          SUM="$(cut -d' ' -f1 "$SHAFILE")"
+          COMMIT="$(git -C src rev-parse HEAD)"
+          SHORT="$(git -C src rev-parse --short HEAD)"
+          REF="$(echo "${{ inputs.ref }}" | tr '/' '-')"
+          RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          TAG="wheel-${REF}-${SHORT}"
+
+          sed -e "s|{{REF}}|${{ inputs.ref }}|g" \
+              -e "s|{{COMMIT}}|$COMMIT|g" \
+              -e "s|{{WHEEL}}|$NAME|g" \
+              -e "s|{{SHA256}}|$SUM|g" \
+              -e "s|{{RUN_URL}}|$RUN_URL|g" \
+              builder/ci/release-notes.md > /tmp/release-notes.md
+
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "release $TAG exists, replacing its assets"
+            gh release upload "$TAG" --repo "$GITHUB_REPOSITORY" --clobber "$WHEEL" "$SHAFILE"
+          else
+            gh release create "$TAG" --repo "$GITHUB_REPOSITORY" \
+              --title "1Cat-vLLM SM70 wheel - ${{ inputs.ref }} @ $SHORT" \
+              --notes-file /tmp/release-notes.md --latest \
+              "$WHEEL" "$SHAFILE"
+          fi
+          echo "release: https://github.com/$GITHUB_REPOSITORY/releases/tag/$TAG"
